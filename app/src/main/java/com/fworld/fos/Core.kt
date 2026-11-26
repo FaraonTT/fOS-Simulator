@@ -23,6 +23,14 @@ object FosConfig {
     const val NORMAL_BOOT_MS = 10_000L
 
     const val CREATOR_URL = "https://t.me/fworld_team"
+
+    /** Версия fOS */
+    const val VERSION = "1.1"
+    const val BUILD_NUMBER = "1.1.26.73-dev-fix"
+    const val KERNEL_VERSION = "1.1.26.73-fworld-kernel"
+
+    /** Адрес сервера fTok (репозиторий fTok-Server). Пусто — задаётся в профиле fTok. */
+    const val DEFAULT_FTOK_SERVER = ""
 }
 
 /** Двуязычные строки: l("Русский", "English") */
@@ -66,10 +74,6 @@ class FosState(context: Context) {
     var setupDone by mutableStateOf(sp.getBoolean("setupDone", false))
     var langRu by mutableStateOf(sp.getBoolean("langRu", true))
     var userName by mutableStateOf(sp.getString("userName", "") ?: "")
-
-    /** fTok profile and server configuration */
-    var ftokUser by mutableStateOf(sp.getString("ftokUser", "") ?: "")
-    var ftokServer by mutableStateOf(sp.getString("ftokServer", "") ?: "")
     var region by mutableStateOf(sp.getString("region", "RU") ?: "RU")
     var use24h by mutableStateOf(sp.getBoolean("use24h", true))
 
@@ -95,6 +99,9 @@ class FosState(context: Context) {
     var brightness by mutableStateOf(sp.getFloat("brightness", 0.8f))
     var volume by mutableStateOf(sp.getFloat("volume", 0.6f))
 
+    var ftokServer by mutableStateOf(sp.getString("ftokServer", FosConfig.DEFAULT_FTOK_SERVER) ?: "")
+    var ftokUser by mutableStateOf(sp.getString("ftokUser", "") ?: "")
+
     var installed by mutableStateOf(
         (sp.getString("installed", "fgram,ftok") ?: "").split(",").filter { it.isNotBlank() }.toSet()
     )
@@ -115,8 +122,6 @@ class FosState(context: Context) {
             .putBoolean("setupDone", setupDone)
             .putBoolean("langRu", langRu)
             .putString("userName", userName)
-            .putString("ftokUser", ftokUser)
-            .putString("ftokServer", ftokServer)
             .putString("region", region)
             .putBoolean("use24h", use24h)
             .putInt("themeMode", themeMode)
@@ -131,6 +136,8 @@ class FosState(context: Context) {
             .putFloat("brightness", brightness)
             .putFloat("volume", volume)
             .putString("installed", installed.joinToString(","))
+            .putString("ftokServer", ftokServer)
+            .putString("ftokUser", ftokUser)
             .apply()
     }
 
@@ -181,8 +188,6 @@ class FosState(context: Context) {
         setupDone = false
         langRu = true
         userName = ""
-        ftokUser = ""
-        ftokServer = ""
         region = "RU"
         use24h = true
         themeMode = 2
@@ -197,6 +202,8 @@ class FosState(context: Context) {
         brightness = 0.8f
         volume = 0.6f
         installed = setOf("fgram", "ftok")
+        ftokServer = FosConfig.DEFAULT_FTOK_SERVER
+        ftokUser = ""
         reboot()
     }
 }
