@@ -15,8 +15,8 @@ android {
         applicationId = "com.fworld.fos"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7301
-        versionName = "1.0.26.73-dev-fix"
+        versionCode = 11000
+        versionName = "1.1"
     }
 
     buildTypes {
@@ -55,8 +55,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
-
-    // Video playback used by fTok
-    implementation("androidx.media3:media3-exoplayer:1.8.0")
-    implementation("androidx.media3:media3-ui:1.8.0")
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
 }
