@@ -1,4 +1,4 @@
-# Версии проверены 25.11.2026
+# Версии проверены 26.11.2026
 [versions]
 agp = "9.5.1"                 # Android Gradle Plugin (минимум Gradle 9.6.0, JDK 17)
 kotlin = "2.4.21"             # Kotlin stable
@@ -6,11 +6,14 @@ composeBom = "2026.11.01"     # Compose 1.13.0 + Material 3 1.5.0 (Expressive st
 activityCompose = "1.13.0"
 coreKtx = "1.19.1"
 lifecycle = "2.11.1"
+media3 = "1.11.1"            # ExoPlayer для fTok (стабильная от 10.09.2026)
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
