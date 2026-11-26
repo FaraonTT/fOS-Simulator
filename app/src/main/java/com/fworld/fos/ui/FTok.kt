@@ -367,7 +367,7 @@ private fun UploadTab(api: TokApi, onDone: () -> Unit) {
                 busy = true; progress = 0f; msg = null
                 scope.launch {
                     runCatching {
-                        api.upload(ctx.contentResolver, u, fos.ftokUser.ifBlank { "guest" }, title.trim(), size) { progress = it }
+                        api.upload(ctx.contentResolver, u, fos.ftokUser.ifBlank { "guest" }, title.trim(), size) { value -> progress = value }
                     }.onSuccess { onDone() }.onFailure { msg = it.message ?: "error" }
                     busy = false
                 }
