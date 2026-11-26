@@ -17,6 +17,9 @@ android {
         targetSdk = 36
         versionCode = 11000
         versionName = "1.1"
+
+        // Токен хранилища fTok (fine-grained, только репозиторий fTok-Data). Берётся из секрета GH_TOKEN при сборке.
+        buildConfigField("String", "GH_TOKEN", "\"${System.getenv("GH_TOKEN") ?: ""}\"")
     }
 
     buildTypes {
@@ -32,6 +35,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
