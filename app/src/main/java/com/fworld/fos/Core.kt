@@ -66,6 +66,10 @@ class FosState(context: Context) {
     var setupDone by mutableStateOf(sp.getBoolean("setupDone", false))
     var langRu by mutableStateOf(sp.getBoolean("langRu", true))
     var userName by mutableStateOf(sp.getString("userName", "") ?: "")
+
+    /** fTok profile and server configuration */
+    var ftokUser by mutableStateOf(sp.getString("ftokUser", "") ?: "")
+    var ftokServer by mutableStateOf(sp.getString("ftokServer", "") ?: "")
     var region by mutableStateOf(sp.getString("region", "RU") ?: "RU")
     var use24h by mutableStateOf(sp.getBoolean("use24h", true))
 
@@ -111,6 +115,8 @@ class FosState(context: Context) {
             .putBoolean("setupDone", setupDone)
             .putBoolean("langRu", langRu)
             .putString("userName", userName)
+            .putString("ftokUser", ftokUser)
+            .putString("ftokServer", ftokServer)
             .putString("region", region)
             .putBoolean("use24h", use24h)
             .putInt("themeMode", themeMode)
@@ -175,6 +181,8 @@ class FosState(context: Context) {
         setupDone = false
         langRu = true
         userName = ""
+        ftokUser = ""
+        ftokServer = ""
         region = "RU"
         use24h = true
         themeMode = 2
