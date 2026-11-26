@@ -239,13 +239,9 @@ fun LockScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             FosIcon(R.drawable.ic_lock, Color.White.copy(alpha = 0.85f), 22.dp)
-            Text(
-                now.timeText(fos.use24h),
-                color = Color.White,
-                fontSize = 92.sp,
-                fontWeight = FontWeight.Light,
-                modifier = Modifier.padding(top = 6.dp),
-            )
+            val (hh, mm) = now.timeParts(fos.use24h)
+            Text(hh, color = Color.White, fontSize = 112.sp, fontWeight = FontWeight.Bold, lineHeight = 100.sp, modifier = Modifier.padding(top = 6.dp))
+            Text(mm, color = Color.White.copy(alpha = 0.85f), fontSize = 112.sp, fontWeight = FontWeight.Bold, lineHeight = 100.sp)
             Text(now.dateText(fos.langRu), color = Color.White.copy(alpha = 0.9f), fontSize = 17.sp)
             if (fos.notifs.isNotEmpty()) {
                 Text(
@@ -328,11 +324,8 @@ private fun AuthPanel(onSuccess: () -> Unit) {
                 .offset { IntOffset(shake.value.roundToInt(), 0) },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                FosIcon(R.drawable.ic_person, Color.White, 34.dp)
+            ShapeBadge(ShapeKind.Cookie9, Color.White.copy(alpha = 0.18f), 72.dp) {
+                FosIcon(R.drawable.ic_person, Color.White, 36.dp)
             }
             if (fos.userName.isNotBlank()) {
                 Text(fos.userName, color = Color.White, fontSize = 18.sp, modifier = Modifier.padding(top = 10.dp))
@@ -393,7 +386,7 @@ private fun AuthPanel(onSuccess: () -> Unit) {
                         },
                     )
                 }
-                LockType.NONE -> onSuccess()
+                LockType.NONE -> LaunchedEffect(Unit) { onSuccess() }
             }
         }
     }
