@@ -76,7 +76,14 @@ private enum class TokTab { HOME, SEARCH, ADD, PROFILE }
 fun FTokApp(onClose: () -> Unit) {
     val fos = LocalFos.current
     val l = lang()
-    val api = remember(fos.ftokServer) { TokApi(fos.ftokServer) }
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("ftok", android.content.Context.MODE_PRIVATE) }
+    var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
+    var server by remember { mutableStateOf(fos.ftokServer) }
+    LaunchedEffect(Unit) { if (server.isBlank()) server = TokApi.discover() }
+    val api = remember(server, token) { TokApi(server, token) }
+    val signOut = { token = ""; prefs.edit().remove("token").apply(); fos.update { ftokUser = "" } }
+    val signIn = { user: String, t: String -> token = t; prefs.edit().putString("token", t).apply(); fos.update { ftokUser = user } }
     var tab by remember { mutableStateOf(TokTab.HOME) }
     var viewer by remember { mutableStateOf<Pair<List<TokVideo>, Int>?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -98,8 +105,8 @@ fun FTokApp(onClose: () -> Unit) {
             when (tab) {
                 TokTab.HOME -> HomeFeed(api, refreshKey, onExit = onClose)
                 TokTab.SEARCH -> SearchTab(api) { list, i -> viewer = list to i }
-                TokTab.ADD -> UploadTab(api, onDone = { refreshKey++; tab = TokTab.HOME })
-                TokTab.PROFILE -> ProfileTab(api, refreshKey) { list, i -> viewer = list to i }
+                TokTab.ADD -> UploadTab(api, onDone = { refreshKey++; tab = TokTab.HOME }, onNeedLogin = { tab = TokTab.PROFILE })
+                TokTab.PROFILE -> ProfileTab(api, refreshKey, signIn, signOut) { list, i -> viewer = list to i }
             }
             Dock(
                 current = tab,
@@ -180,7 +187,7 @@ private fun HomeFeed(api: TokApi, refreshKey: Int, onExit: () -> Unit) {
     when {
         !api.configured -> Empty(
             l("Сервер не подключён", "No server connected"),
-            l("Откройте Профиль и укажите адрес сервера fTok-Server.", "Open Profile and set your fTok-Server address."),
+            l("Сервер fTok недоступен. Попробуйте позже.", "The fTok server is unavailable. Try again later."),
         )
         loading && videos.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         error != null -> Empty(
@@ -244,7 +251,7 @@ private fun Feed(videos: List<TokVideo>, start: Int, api: TokApi) {
                     if (isLiked) Color(0xFFFF4081) else Color.White.copy(alpha = 0.18f),
                     56.dp,
                     Modifier.clickable {
-                        if (!isLiked) {
+                        if (!isLiked && api.loggedIn) {
                             liked.value = liked.value + v.id
                             likes.value = likes.value + (v.id to (likes.value[v.id] ?: 0) + 1)
                             scope.launch { runCatching { api.like(v.id) } }
@@ -295,7 +302,7 @@ private fun SearchTab(api: TokApi, onOpen: (List<TokVideo>, Int) -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
         )
         if (!api.configured) {
-            Empty(l("Сервер не подключён", "No server connected"), l("Укажите сервер в Профиле.", "Set the server in Profile."))
+            Empty(l("Сервер недоступен", "Server unavailable"), l("Попробуйте позже.", "Try again later."))
         } else if (busy && results.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         } else if (searched && results.isEmpty()) {
@@ -309,8 +316,7 @@ private fun SearchTab(api: TokApi, onOpen: (List<TokVideo>, Int) -> Unit) {
 }
 
 @Composable
-private fun UploadTab(api: TokApi, onDone: () -> Unit) {
-    val fos = LocalFos.current
+private fun UploadTab(api: TokApi, onDone: () -> Unit, onNeedLogin: () -> Unit) {
     val l = lang()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -362,32 +368,43 @@ private fun UploadTab(api: TokApi, onDone: () -> Unit) {
         Button(
             onClick = {
                 val u = uri ?: return@Button
-                if (!api.configured) { msg = l("Сначала укажите сервер в Профиле", "Set the server in Profile first"); return@Button }
+                if (!api.loggedIn) { onNeedLogin(); return@Button }
+                if (!api.configured) { msg = l("Сервер fTok недоступен", "The fTok server is unavailable"); return@Button }
                 if (size > MAX_UPLOAD) { msg = l("Файл больше 50 МБ", "File is over 50 MB"); return@Button }
                 busy = true; progress = 0f; msg = null
                 scope.launch {
                     runCatching {
-                        api.upload(ctx.contentResolver, u, fos.ftokUser.ifBlank { "guest" }, title.trim(), size) { value -> progress = value }
+                        api.upload(ctx.contentResolver, u, title.trim(), size) { value -> progress = value }
                     }.onSuccess { onDone() }.onFailure { msg = it.message ?: "error" }
                     busy = false
                 }
             },
             enabled = uri != null && !busy,
             modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
-        ) { Text(l("Опубликовать", "Publish")) }
+        ) { Text(if (api.loggedIn) l("Опубликовать", "Publish") else l("Войти, чтобы опубликовать", "Sign in to publish")) }
     }
 }
 
 @Composable
-private fun ProfileTab(api: TokApi, refreshKey: Int, onOpen: (List<TokVideo>, Int) -> Unit) {
+private fun ProfileTab(
+    api: TokApi,
+    refreshKey: Int,
+    onSignIn: (String, String) -> Unit,
+    onSignOut: () -> Unit,
+    onOpen: (List<TokVideo>, Int) -> Unit,
+) {
     val fos = LocalFos.current
     val l = lang()
-    var name by remember { mutableStateOf(fos.ftokUser) }
-    var server by remember { mutableStateOf(fos.ftokServer) }
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var register by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
     var mine by remember { mutableStateOf<List<TokVideo>>(emptyList()) }
 
-    LaunchedEffect(api, refreshKey, fos.ftokUser) {
-        if (api.configured && fos.ftokUser.isNotBlank()) {
+    LaunchedEffect(api, refreshKey) {
+        if (api.configured && api.loggedIn && fos.ftokUser.isNotBlank()) {
             runCatching { api.list(user = fos.ftokUser) }.onSuccess { mine = it }
         } else mine = emptyList()
     }
@@ -400,36 +417,67 @@ private fun ProfileTab(api: TokApi, refreshKey: Int, onOpen: (List<TokVideo>, In
         item {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 GradientShape(ShapeKind.Cookie12, listOf(Color(0xFFFF4081), Color(0xFF7B1FA2)), 108.dp) {
-                    Text((fos.ftokUser.firstOrNull() ?: '?').uppercase(), color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                    if (api.loggedIn) Text((fos.ftokUser.firstOrNull() ?: '?').uppercase(), color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                    else FosIcon(R.drawable.ic_person, Color.White, 48.dp)
                 }
-                Text("@${fos.ftokUser.ifBlank { "guest" }}", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-                Text("${mine.size} " + l("видео", "videos"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                if (api.loggedIn) {
+                    Text("@${fos.ftokUser}", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+                    Text("${mine.size} " + l("видео", "videos"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                } else {
+                    Text(
+                        if (register) l("Создать аккаунт", "Create account") else l("Вход в fTok", "Sign in to fTok"),
+                        color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
             }
         }
-        item {
-            OutlinedTextField(
-                value = name, onValueChange = { name = it.filter { c -> c.isLetterOrDigit() || c == '_' }.take(24) },
-                label = { Text(l("Имя пользователя", "Username")) }, singleLine = true, shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        item {
-            OutlinedTextField(
-                value = server, onValueChange = { server = it.trim() },
-                label = { Text(l("Адрес сервера fTok", "fTok server address")) },
-                placeholder = { Text("https://your-server.example.com") },
-                singleLine = true, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        item {
-            Button(
-                onClick = { fos.update { ftokUser = name; ftokServer = server.trimEnd('/') } },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(l("Сохранить", "Save")) }
-        }
-        if (mine.isNotEmpty()) {
-            item { Text(l("Мои видео", "My videos"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-            items(mine.size) { i -> VideoRow(mine[i]) { onOpen(mine, i) } }
+        if (!api.loggedIn) {
+            item {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it.filter { c -> c.isLetterOrDigit() || c == '_' }.take(24) },
+                    label = { Text(l("Имя пользователя", "Username")) }, singleLine = true, shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = pass, onValueChange = { pass = it.take(128) },
+                    label = { Text(l("Пароль", "Password")) }, singleLine = true, shape = RoundedCornerShape(24.dp),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            msg?.let { item { Text(it, color = Color(0xFFFF8A80)) } }
+            item {
+                Button(
+                    enabled = !busy && name.length >= 3 && pass.length >= 6,
+                    onClick = {
+                        if (!api.configured) { msg = l("Сервер fTok недоступен", "The fTok server is unavailable"); return@Button }
+                        busy = true; msg = null
+                        scope.launch {
+                            runCatching { api.auth(register, name, pass) }
+                                .onSuccess { (u, t) -> onSignIn(u, t); pass = "" }
+                                .onFailure { msg = it.message ?: "error" }
+                            busy = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (register) l("Зарегистрироваться", "Sign up") else l("Войти", "Sign in")) }
+            }
+            item {
+                FilledTonalButton(onClick = { register = !register; msg = null }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (register) l("У меня уже есть аккаунт", "I already have an account") else l("Создать аккаунт", "Create an account"))
+                }
+            }
+        } else {
+            item {
+                FilledTonalButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text(l("Выйти", "Sign out")) }
+            }
+            if (mine.isNotEmpty()) {
+                item { Text(l("Мои видео", "My videos"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+                items(mine.size) { i -> VideoRow(mine[i]) { onOpen(mine, i) } }
+            }
         }
     }
 }
