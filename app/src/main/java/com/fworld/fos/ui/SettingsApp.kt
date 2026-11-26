@@ -206,8 +206,8 @@ private fun AboutPage() {
 
     // Значения заданы в ТЗ. Подписи: рус / англ
     val rows = listOf(
-        l("Номер сборки", "Build number") to "1.0.26.73-dev-fix",
-        l("Версия ядра", "Kernel version") to "1.0.26.73-fworld-kernel",
+        l("Номер сборки", "Build number") to FosConfig.BUILD_NUMBER,
+        l("Версия ядра", "Kernel version") to FosConfig.KERNEL_VERSION,
         l("Модель", "Model") to "260173FB",
         l("Название телефона", "Phone name") to "fPhone 1.0",
         l("Процессор", "CPU") to "fCpu 1.0 Ultimate",
