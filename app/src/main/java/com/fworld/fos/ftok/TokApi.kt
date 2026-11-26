@@ -20,31 +20,29 @@ data class TokVideo(
     val created: Long,
 )
 
-/** Клиент API сервера fTok. Заглушек нет: если сервер не задан или пуст — лента пустая. */
-class TokApi(base: String) {
+class TokAuthException(message: String) : Exception(message)
+
+/**
+ * Клиент API сервера fTok. Заглушек нет.
+ * Адрес сервера приложение берёт из server.json в репозитории fTok-Server — пользователь его не вводит.
+ */
+class TokApi(base: String, private val token: String = "") {
     private val base = base.trim().trimEnd('/')
 
     val configured get() = base.startsWith("http://") || base.startsWith("https://")
+    val loggedIn get() = token.isNotEmpty()
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     suspend fun list(query: String = "", user: String = ""): List<TokVideo> = withContext(Dispatchers.IO) {
-        val u = "$base/api/videos?q=${enc(query)}&user=${enc(user)}&limit=50"
-        val c = open(u, "GET")
+        val c = open("$base/api/videos?q=${enc(query)}&user=${enc(user)}&limit=50", "GET")
         try {
             check(c.responseCode == 200) { "HTTP ${c.responseCode}" }
             val arr = JSONObject(c.inputStream.bufferedReader().readText()).getJSONArray("videos")
             List(arr.length()) { i ->
                 val o = arr.getJSONObject(i)
                 val id = o.getString("id")
-                TokVideo(
-                    id = id,
-                    user = o.optString("user", "anon"),
-                    title = o.optString("title", ""),
-                    url = "$base/v/$id",
-                    likes = o.optInt("likes", 0),
-                    created = o.optLong("created", 0),
-                )
+                TokVideo(id, o.optString("user", "anon"), o.optString("title", ""), "$base/v/$id", o.optInt("likes", 0), o.optLong("created", 0))
             }
         } finally { c.disconnect() }
     }
@@ -54,16 +52,30 @@ class TokApi(base: String) {
         try { c.responseCode } finally { c.disconnect() }
     }
 
-    /** Загрузка видео потоком; onProgress 0..1. Возвращает id нового видео. */
+    /** Регистрация или вход. Возвращает (имя, токен). */
+    suspend fun auth(register: Boolean, user: String, password: String): Pair<String, String> = withContext(Dispatchers.IO) {
+        val c = open("$base/api/${if (register) "register" else "login"}", "POST")
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        try {
+            c.outputStream.use { it.write(JSONObject().put("user", user).put("password", password).toString().toByteArray()) }
+            val code = c.responseCode
+            val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
+            if (code !in 200..299) throw TokAuthException(runCatching { JSONObject(body).getString("error") }.getOrDefault("HTTP $code"))
+            val o = JSONObject(body)
+            o.getString("user") to o.getString("token")
+        } finally { c.disconnect() }
+    }
+
+    /** Загрузка видео потоком; onProgress 0..1. Автор определяется по токену. */
     suspend fun upload(
         cr: ContentResolver,
         uri: Uri,
-        user: String,
         title: String,
         sizeBytes: Long,
         onProgress: (Float) -> Unit,
     ): String = withContext(Dispatchers.IO) {
-        val c = open("$base/api/videos?user=${enc(user)}&title=${enc(title)}", "POST")
+        val c = open("$base/api/videos?title=${enc(title)}", "POST")
         c.doOutput = true
         c.setRequestProperty("Content-Type", "video/mp4")
         if (sizeBytes > 0) c.setFixedLengthStreamingMode(sizeBytes) else c.setChunkedStreamingMode(64 * 1024)
@@ -84,6 +96,7 @@ class TokApi(base: String) {
             }
             val code = c.responseCode
             val body = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty()
+            if (code == 401) throw TokAuthException("Войдите в аккаунт заново")
             check(code in 200..299) { "HTTP $code ${body.take(120)}" }
             JSONObject(body).optString("id")
         } finally { c.disconnect() }
@@ -94,5 +107,19 @@ class TokApi(base: String) {
             requestMethod = method
             connectTimeout = 10_000
             readTimeout = 60_000
+            if (token.isNotEmpty()) setRequestProperty("Authorization", "Bearer $token")
         }
+
+    companion object {
+        /** Адрес сервера хранится в server.json репозитория fTok-Server: {"url": "https://..."} */
+        const val DIRECTORY = "https://raw.githubusercontent.com/FaraonTT/fTok-Server/main/server.json"
+
+        suspend fun discover(): String = withContext(Dispatchers.IO) {
+            runCatching {
+                val c = URL(DIRECTORY).openConnection() as HttpURLConnection
+                c.connectTimeout = 8_000; c.readTimeout = 8_000
+                try { JSONObject(c.inputStream.bufferedReader().readText()).optString("url", "") } finally { c.disconnect() }
+            }.getOrDefault("")
+        }
+    }
 }
