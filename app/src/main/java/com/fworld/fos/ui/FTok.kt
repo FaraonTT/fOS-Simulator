@@ -58,7 +58,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.fworld.fos.LocalFos
@@ -76,14 +78,9 @@ private enum class TokTab { HOME, SEARCH, ADD, PROFILE }
 fun FTokApp(onClose: () -> Unit) {
     val fos = LocalFos.current
     val l = lang()
-    val ctx = LocalContext.current
-    val prefs = remember { ctx.getSharedPreferences("ftok", android.content.Context.MODE_PRIVATE) }
-    var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
-    var server by remember { mutableStateOf(fos.ftokServer) }
-    LaunchedEffect(Unit) { if (server.isBlank()) server = TokApi.discover() }
-    val api = remember(server, token) { TokApi(server, token) }
-    val signOut = { token = ""; prefs.edit().remove("token").apply(); fos.update { ftokUser = "" } }
-    val signIn = { user: String, t: String -> token = t; prefs.edit().putString("token", t).apply(); fos.update { ftokUser = user } }
+    val api = remember(fos.ftokUser) { TokApi(com.fworld.fos.BuildConfig.GH_TOKEN, fos.ftokUser) }
+    val signOut = { fos.update { ftokUser = "" } }
+    val signIn = { u: String -> fos.update { ftokUser = u } }
     var tab by remember { mutableStateOf(TokTab.HOME) }
     var viewer by remember { mutableStateOf<Pair<List<TokVideo>, Int>?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -186,8 +183,8 @@ private fun HomeFeed(api: TokApi, refreshKey: Int, onExit: () -> Unit) {
 
     when {
         !api.configured -> Empty(
-            l("Сервер не подключён", "No server connected"),
-            l("Сервер fTok недоступен. Попробуйте позже.", "The fTok server is unavailable. Try again later."),
+            l("Хранилище не подключено", "Storage not connected"),
+            l("В этой сборке не настроен токен GitHub (GH_TOKEN).", "This build has no GitHub token (GH_TOKEN)."),
         )
         loading && videos.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         error != null -> Empty(
@@ -208,7 +205,11 @@ private fun Feed(videos: List<TokVideo>, start: Int, api: TokApi) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val pager = rememberPagerState(initialPage = start.coerceIn(0, (videos.size - 1).coerceAtLeast(0))) { videos.size }
-    val player = remember { ExoPlayer.Builder(ctx).build().apply { repeatMode = Player.REPEAT_MODE_ONE; playWhenReady = true } }
+    val player = remember {
+        ExoPlayer.Builder(ctx)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultHttpDataSource.Factory().setDefaultRequestProperties(api.authHeaders())))
+            .build().apply { repeatMode = Player.REPEAT_MODE_ONE; playWhenReady = true }
+    }
     val likes = remember(videos) { mutableStateOf(videos.associate { it.id to it.likes }) }
     val liked = remember { mutableStateOf(setOf<String>()) }
 
@@ -302,7 +303,7 @@ private fun SearchTab(api: TokApi, onOpen: (List<TokVideo>, Int) -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
         )
         if (!api.configured) {
-            Empty(l("Сервер недоступен", "Server unavailable"), l("Попробуйте позже.", "Try again later."))
+            Empty(l("Нет подключения", "Not connected"), l("В сборке нет токена GitHub.", "This build has no GitHub token."))
         } else if (busy && results.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color.White) }
         } else if (searched && results.isEmpty()) {
@@ -369,7 +370,7 @@ private fun UploadTab(api: TokApi, onDone: () -> Unit, onNeedLogin: () -> Unit) 
             onClick = {
                 val u = uri ?: return@Button
                 if (!api.loggedIn) { onNeedLogin(); return@Button }
-                if (!api.configured) { msg = l("Сервер fTok недоступен", "The fTok server is unavailable"); return@Button }
+                if (!api.configured) { msg = l("Хранилище fTok не настроено", "fTok storage is not configured"); return@Button }
                 if (size > MAX_UPLOAD) { msg = l("Файл больше 50 МБ", "File is over 50 MB"); return@Button }
                 busy = true; progress = 0f; msg = null
                 scope.launch {
@@ -389,7 +390,7 @@ private fun UploadTab(api: TokApi, onDone: () -> Unit, onNeedLogin: () -> Unit) 
 private fun ProfileTab(
     api: TokApi,
     refreshKey: Int,
-    onSignIn: (String, String) -> Unit,
+    onSignIn: (String) -> Unit,
     onSignOut: () -> Unit,
     onOpen: (List<TokVideo>, Int) -> Unit,
 ) {
@@ -453,11 +454,11 @@ private fun ProfileTab(
                 Button(
                     enabled = !busy && name.length >= 3 && pass.length >= 6,
                     onClick = {
-                        if (!api.configured) { msg = l("Сервер fTok недоступен", "The fTok server is unavailable"); return@Button }
+                        if (!api.configured) { msg = l("Хранилище fTok не настроено", "fTok storage is not configured"); return@Button }
                         busy = true; msg = null
                         scope.launch {
                             runCatching { api.auth(register, name, pass) }
-                                .onSuccess { (u, t) -> onSignIn(u, t); pass = "" }
+                                .onSuccess { u -> onSignIn(u); pass = "" }
                                 .onFailure { msg = it.message ?: "error" }
                             busy = false
                         }
